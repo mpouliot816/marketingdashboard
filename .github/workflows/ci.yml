@@ -1,0 +1,166 @@
+name: CI
+
+# Two triggers, deliberately treated differently.
+#
+#   pull_request — human/agent-authored changes that go through review. The
+#     documentation-drift check is a hard failure here.
+#
+#   push to main — this is how the Lovable agent lands its work. Lovable commits
+#     straight to the connected branch and never opens a pull request (see
+#     AGENTS.md), so a hard failure here would block the product's own build
+#     loop without ever having been reviewable. On push the drift check reports
+#     as a warning annotation and does not fail the run.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Install, build, typecheck, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The application source is not yet in this repository — it currently
+      # lives in the connected Lovable project. Skip cleanly rather than
+      # reporting a permanent red build; this job starts working the moment
+      # the source lands.
+      - name: Detect application source
+        id: detect
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=No application source::package.json not found. The app source is not in this repository yet, so install/build/typecheck/lint/test were skipped."
+          fi
+
+      - uses: oven-sh/setup-bun@v2
+        if: steps.detect.outputs.present == 'true'
+        with:
+          bun-version: latest
+
+      - name: Install
+        if: steps.detect.outputs.present == 'true'
+        run: bun install --frozen-lockfile
+
+      # A script that is absent is a gap to report, not a build failure. A
+      # script that is present and fails is a build failure.
+      - name: Typecheck
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.typecheck ? 0 : 1)"; then
+            bun run typecheck
+          else
+            echo "::warning title=No typecheck script::package.json defines no 'typecheck' script."
+          fi
+
+      - name: Lint
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.lint ? 0 : 1)"; then
+            bun run lint
+          else
+            echo "::warning title=No lint script::package.json defines no 'lint' script."
+          fi
+
+      - name: Test
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)"; then
+            bun run test
+          else
+            echo "::warning title=No test script::package.json defines no 'test' script. Record the gap in docs/KNOWN-ISSUES.md."
+          fi
+
+      # Build last: it is the slowest step and the least informative failure.
+      # Placeholder Supabase values only — the client is instantiated lazily, so
+      # these are never used, but their absence would mask a real build error
+      # behind a missing-env error.
+      - name: Build
+        if: steps.detect.outputs.present == 'true'
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+          SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+        run: bun run build
+
+  docs-current:
+    name: Documentation reflects the change
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare changed paths
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = "pull_request" ]; then
+            BASE="$BASE_SHA"
+          else
+            BASE="$BEFORE_SHA"
+          fi
+
+          # First push to a new branch, or a force-landed history, gives an
+          # all-zero or unreachable base. Nothing meaningful to compare.
+          if [ -z "${BASE:-}" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "::notice title=Drift check skipped::No usable base commit to diff against."
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD_SHA")
+          echo "Changed files:"
+          echo "$CHANGED" | sed 's/^/  /'
+
+          BEHAVIOUR=$(echo "$CHANGED" | grep -E '^(src/|supabase/migrations/)' || true)
+          DOCS=$(echo "$CHANGED" | grep -E '^(docs/|CLAUDE\.md|README\.md)' || true)
+
+          if [ -n "$BEHAVIOUR" ] && [ -z "$DOCS" ]; then
+            {
+              echo "### Documentation drift"
+              echo
+              echo "These changed under \`src/\` or \`supabase/migrations/\`:"
+              echo
+              echo '```'
+              echo "$BEHAVIOUR"
+              echo '```'
+              echo
+              echo "No file under \`docs/\` changed in the same commit range."
+              echo
+              echo "\`docs/KNOWN-ISSUES.md\` is the current state of this project and must be"
+              echo "updated in the same commit as any change that alters what it describes."
+              echo "If you fixed something listed there, mark it resolved with the date. If you"
+              echo "found something new, add it. If you changed behaviour another doc describes,"
+              echo "update that too."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Hard failure on pull requests; warning on the Lovable agent's direct
+      # pushes to main, which are never reviewable through a PR.
+      - name: Report
+        if: steps.diff.outputs.drift == 'true'
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "::error title=Documentation not updated::Behaviour changed under src/ or supabase/migrations/ but no file under docs/ changed. See the job summary."
+            exit 1
+          fi
+          echo "::warning title=Documentation not updated::Behaviour changed under src/ or supabase/migrations/ but no file under docs/ changed. See the job summary."
