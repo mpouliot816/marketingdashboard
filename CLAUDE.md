@@ -24,10 +24,12 @@ The Lovable README claims "every change made in Lovable is committed straight to
 this repository." That has not happened. Verify where the code actually is before
 assuming a file path exists.
 
-The five documents referenced below (`docs/*.md`) are **not yet committed**.
-Where this file points at them, it is describing the intended structure, not a
-file you can currently open. If you add them, the state rule below applies from
-that moment on.
+The five documents referenced below (`docs/*.md`) **are committed** as of
+4 September 2026, and every factual claim in them was verified against the code
+and the live database on that date. Corrections are marked inline with ⚠ or in
+italics. `README.md` is still missing — it was never supplied.
+
+The state rule below applies from now on.
 
 ---
 
@@ -201,6 +203,23 @@ findings, not permissions — do not copy these patterns.
   `load_batches` row claiming success.
 - **`fact_lead` supersession is unscoped** — it retires every current lead row
   regardless of which weeks the uploaded workbook covers.
+- **Threshold governance is two systems.** `/alerts` → "Proposal queue" and
+  "Rules & history" run on `ratification.ts`, which stores proposals and
+  ratified versions in `localStorage`. Only the "Governance (Cloud)" tab uses
+  the database, the CHECK constraint and the triggers. A threshold ratified on
+  the client path goes live in one browser and never updates
+  `alert_rules.threshold`. Do not add features to the client path — merge it.
+- **Alert thresholds have two sources and have already drifted.**
+  `perf.tour_show_rate` is 40 in the code's `DEFAULT_RULES` and 45 in
+  `alert_rules`. Server-side evaluation uses the database; the UI displays the
+  code value. Every other rule currently agrees.
+- **`matchProperty` fuzzy-matches on prefixes** while its own docstring and the
+  `data.unmapped_property` rule both claim it never does. Three sheets
+  (Occupancy Data, Lost Leads, Campaigns - Gads) drop unmapped rows with no
+  exception recorded at all.
+- **Restatements surface nowhere.** Ingest writes them correctly, but there is
+  no panel on the Data Integrity page and `UploadCard` discards the ingest
+  summary. The data exists and no screen shows it.
 
 ---
 
