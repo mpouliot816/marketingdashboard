@@ -24,10 +24,11 @@ The Lovable README claims "every change made in Lovable is committed straight to
 this repository." That has not happened. Verify where the code actually is before
 assuming a file path exists.
 
-The five documents referenced below (`docs/*.md`) **are committed** as of
-4 September 2026, and every factual claim in them was verified against the code
-and the live database on that date. Corrections are marked inline with ⚠ or in
-italics. `README.md` is still missing — it was never supplied.
+All six documents — `README.md` and the five under `docs/` — **are committed** as
+of 4 September 2026, and every factual claim in them was verified against the
+code and the live database on that date. Corrections are marked inline with ⚠ or
+in italics, and rules the code does not honour are recorded as findings rather
+than removed.
 
 The state rule below applies from now on.
 
@@ -137,7 +138,7 @@ it in the same commit as the change.
 | `docs/GOVERNANCE.md` | Before touching roles, RLS policies, the proposal/ratification flow or the two-person rule. |
 | `docs/DATA-SOURCES.md` | Before changing the parser, the property alias table, or anything about the weekly workbook's sheets. |
 | `docs/OPERATIONS.md` | Before changing a screen, or when you need to know what the UI is supposed to do. |
-| `README.md` | Orientation only — roles, routes, how to run it. |
+| `README.md` | Orientation — what the tool is, who reads what, where the code actually lives, how to run it. |
 | `AUDIT.md` | The external audit that produced most of the above rules. Historical, but the reasoning is worth reading once. |
 
 ---
